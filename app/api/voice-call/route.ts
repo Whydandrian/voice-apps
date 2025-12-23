@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     console.log('📦 FormData fields:', Array.from(formData.keys()));
     
     // Forward ke n8n
-    const n8nUrl = 'https://n8n.itk.ac.id/webhook/voice-call';
+    const n8nUrl = 'https://n8n.itk.ac.id/webhook-test/voice-call';
     console.log('➡️ Forwarding to:', n8nUrl);
     
     const response = await fetch(n8nUrl, {
