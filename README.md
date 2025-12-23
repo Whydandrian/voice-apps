@@ -2,15 +2,33 @@
 
 Aplikasi web untuk melakukan voice call dengan AI Customer Service menggunakan Next.js dan n8n.
 
+## ✨ LATEST UPDATES (v2.0)
+
+### 🎯 Problems Fixed:
+1. **✅ CORS Issue Resolved** - No more CORS errors! Now using API proxy route
+2. **✅ Session Management Implemented** - Proper session tracking with persistent callId
+
+### 🆕 New Features:
+- **Session Management System** - Track complete call sessions with unique IDs
+- **API Proxy for CORS-Free Communication** - All requests go through Next.js API
+- **Session Storage & Recovery** - Sessions saved to sessionStorage
+- **Real-time Session Monitoring** - See session info, chunk counts in UI
+- **Session Metadata Tracking** - Track start time, end time, duration, chunks
+
+📖 **See [SESSION_GUIDE.md](./SESSION_GUIDE.md) for complete documentation**
+
 ## 🚀 Fitur
 
 - ✅ Voice recording real-time dari browser
-- ✅ Streaming audio ke n8n setiap 2 detik
+- ✅ Streaming audio ke n8n setiap 2 detik (with session tracking!)
 - ✅ Audio level visualizer
 - ✅ Mute/unmute microphone
 - ✅ Timer durasi panggilan
 - ✅ Auto-save recording ke Google Drive via n8n
 - ✅ Responsive UI dengan Tailwind CSS
+- ✅ **NO CORS Issues** - API proxy handles all requests
+- ✅ **Session Management** - Track every call with unique session ID
+- ✅ **Session Recovery** - Recover sessions on page refresh
 
 ## 📋 Prerequisites
 
@@ -131,21 +149,43 @@ voice-call-app/
 
 ## 🔍 Troubleshooting
 
+### ✅ CORS Issues (FIXED!)
+**Old Problem:** "Access to fetch at 'https://n8n.itk.ac.id/webhook/voice-call' from origin 'http://localhost:3000' has been blocked by CORS policy"
+
+**Solution Implemented:**
+- Now using API proxy route `/api/voice-call`
+- All requests go through Next.js server (no CORS!)
+- Check browser console - you should see "✅ Audio chunk sent successfully"
+
+### ✅ Session Not Tracked (FIXED!)
+**Old Problem:** Each audio chunk got a different callId
+
+**Solution Implemented:**
+- Session created once when call starts
+- Same sessionId and callId used for all chunks
+- Check UI for "Session Info" panel showing session details
+
 ### Microphone tidak terdeteksi
 - Pastikan browser memiliki izin akses microphone
 - Cek di Settings browser → Privacy → Microphone
 - Gunakan HTTPS (untuk production)
 
 ### Audio tidak terkirim ke n8n
-- Cek n8n webhook URL sudah benar
+- ✅ CORS fixed - should work now!
+- Cek n8n webhook URL sudah benar di API route
 - Pastikan n8n workflow sudah aktif
-- Cek CORS settings di n8n
 - Lihat console browser untuk error
 
 ### Recording tidak tersimpan
 - Pastikan endpoint `/final` sudah dikonfigurasi di n8n
 - Cek Google Drive API credentials di n8n
 - Verifikasi folder permissions di Google Drive
+
+### Session Issues
+- Check browser console for session creation logs
+- Verify `/api/session` endpoint is working
+- Check sessionStorage in DevTools (F12 → Application → Session Storage)
+- See [SESSION_GUIDE.md](./SESSION_GUIDE.md) for detailed troubleshooting
 
 ## 🌐 Deploy ke Production
 

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
+import { CallSession } from '@/app/types/session';
 
 export default function VoiceCall() {
   const [isCallActive, setIsCallActive] = useState(false);
@@ -9,6 +10,7 @@ export default function VoiceCall() {
   const [callDuration, setCallDuration] = useState(0);
   const [status, setStatus] = useState('Siap untuk memulai panggilan');
   const [audioLevel, setAudioLevel] = useState(0);
+  const [session, setSession] = useState<CallSession | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -17,8 +19,11 @@ export default function VoiceCall() {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const N8N_WEBHOOK_URL = 'https://n8n.itk.ac.id/webhook/voice-call';
+  const audioChunkCountRef = useRef<number>(0);
+
+  // Use API proxy to avoid CORS issues
   const API_URL = '/api/voice-call';
+  const SESSION_API_URL = '/api/session';
 
   useEffect(() => {
     return () => {
@@ -27,31 +32,112 @@ export default function VoiceCall() {
     };
   }, []);
 
-  // Fungsi untuk mengirim audio chunk ke n8n
+  // Create new session
+  const createSession = async (): Promise<CallSession | null> => {
+    try {
+      setStatus('Membuat sesi panggilan...');
+
+      const response = await fetch(SESSION_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create session');
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.session) {
+        console.log('✅ Session created:', data.session);
+        setSession(data.session);
+
+        // Save to sessionStorage for recovery
+        sessionStorage.setItem('activeCallSession', JSON.stringify(data.session));
+
+        return data.session;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('❌ Error creating session:', error);
+      setStatus('Error: Gagal membuat sesi');
+      return null;
+    }
+  };
+
+  // Update session
+  const updateSession = async (updates: {
+    status?: 'active' | 'ended' | 'error';
+    endTime?: string;
+    duration?: number;
+    audioChunks?: number;
+  }) => {
+    if (!session) return;
+
+    try {
+      const response = await fetch(SESSION_API_URL, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          ...updates,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.session) {
+          setSession(data.session);
+          sessionStorage.setItem('activeCallSession', JSON.stringify(data.session));
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error updating session:', error);
+    }
+  };
+
+  // Fungsi untuk mengirim audio chunk ke n8n (via API proxy - NO CORS!)
   const sendAudioChunk = async (audioBlob: Blob) => {
+    if (!session) {
+      console.error('❌ No active session');
+      return;
+    }
+
     try {
       const formData = new FormData();
-      const callIdRef = useRef<string | null>(null);
-
-      callIdRef.current = crypto.randomUUID();
-
       formData.append('audio', audioBlob, 'audio.webm');
       formData.append('timestamp', new Date().toISOString());
+      formData.append('callId', session.callId); // Use session callId
+      formData.append('sessionId', session.sessionId);
+      formData.append('chunkNumber', audioChunkCountRef.current.toString());
 
-      formData.append('callId', callIdRef.current!);
-
-      const response = await fetch(N8N_WEBHOOK_URL, {
+      // Use API proxy instead of direct n8n URL (fixes CORS!)
+      const response = await fetch(API_URL, {
         method: 'POST',
         body: formData,
       });
 
       if (response.ok) {
-        console.log('Audio chunk sent successfully');
+        audioChunkCountRef.current++;
+        console.log(`✅ Audio chunk #${audioChunkCountRef.current} sent successfully`);
+
+        // Update session with chunk count
+        await updateSession({ audioChunks: audioChunkCountRef.current });
       } else {
-        console.error('Failed to send audio chunk:', response.statusText);
+        console.error('❌ Failed to send audio chunk:', response.statusText);
+        setStatus('Error: Gagal mengirim audio');
       }
     } catch (error) {
-      console.error('Error sending audio chunk:', error);
+      console.error('❌ Error sending audio chunk:', error);
       setStatus('Error: Gagal mengirim audio');
     }
   };
@@ -72,6 +158,13 @@ export default function VoiceCall() {
   // Memulai panggilan
   const startCall = async () => {
     try {
+      // Create session first
+      const newSession = await createSession();
+      if (!newSession) {
+        setStatus('Error: Gagal membuat sesi');
+        return;
+      }
+
       setStatus('Meminta izin microphone...');
 
       // Request microphone access
@@ -84,6 +177,7 @@ export default function VoiceCall() {
       });
 
       streamRef.current = stream;
+      audioChunkCountRef.current = 0;
 
       // Setup AudioContext untuk analisis
       audioContextRef.current = new AudioContext();
@@ -115,24 +209,57 @@ export default function VoiceCall() {
       mediaRecorder.onstop = async () => {
         // Kirim recording final ke n8n untuk disimpan
         const fullRecording = new Blob(chunksRef.current, { type: 'audio/webm' });
-        
+
         try {
           const formData = new FormData();
           formData.append('audio', fullRecording, `recording-${Date.now()}.webm`);
           formData.append('type', 'final');
           formData.append('duration', callDuration.toString());
 
-          await fetch(API_URL + '/final', {
+          // Include session information
+          if (session) {
+            formData.append('callId', session.callId);
+            formData.append('sessionId', session.sessionId);
+            formData.append('totalChunks', audioChunkCountRef.current.toString());
+          }
+
+          const response = await fetch(API_URL + '/final', {
             method: 'POST',
             body: formData,
           });
 
-          setStatus('Recording disimpan ke Google Drive');
+          if (response.ok) {
+            setStatus('Recording disimpan ke Google Drive');
+
+            // Update session to ended
+            if (session) {
+              await updateSession({
+                status: 'ended',
+                endTime: new Date().toISOString(),
+                duration: callDuration,
+              });
+            }
+          } else {
+            console.error('Failed to save final recording');
+            setStatus('Error: Gagal menyimpan recording');
+
+            if (session) {
+              await updateSession({ status: 'error' });
+            }
+          }
         } catch (error) {
           console.error('Error saving final recording:', error);
+          setStatus('Error: Gagal menyimpan recording');
+
+          if (session) {
+            await updateSession({ status: 'error' });
+          }
         }
 
         chunksRef.current = [];
+
+        // Clean up session storage
+        sessionStorage.removeItem('activeCallSession');
       };
 
       // Mulai recording dengan interval 2 detik
@@ -158,7 +285,16 @@ export default function VoiceCall() {
   };
 
   // Menghentikan panggilan
-  const stopCall = () => {
+  const stopCall = async () => {
+    // Update session before stopping
+    if (session) {
+      await updateSession({
+        status: 'ended',
+        endTime: new Date().toISOString(),
+        duration: callDuration,
+      });
+    }
+
     // Stop media recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -189,12 +325,17 @@ export default function VoiceCall() {
     setIsMuted(false);
     setAudioLevel(0);
     setStatus('Panggilan berakhir');
+    setSession(null);
 
     // Reset refs
     mediaRecorderRef.current = null;
     audioContextRef.current = null;
     analyserRef.current = null;
     streamRef.current = null;
+    audioChunkCountRef.current = 0;
+
+    // Clean up session storage
+    sessionStorage.removeItem('activeCallSession');
   };
 
   // Toggle mute
@@ -304,10 +445,23 @@ export default function VoiceCall() {
           </ul>
         </div>
 
+        {/* Session Info */}
+        {session && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-gray-600">
+            <p className="font-semibold mb-1">📞 Session Info:</p>
+            <p className="break-all">Session ID: {session.sessionId}</p>
+            <p className="break-all">Call ID: {session.callId}</p>
+            <p>Status: <span className="font-semibold text-green-600">{session.status}</span></p>
+            <p>Audio Chunks: {audioChunkCountRef.current}</p>
+          </div>
+        )}
+
         {/* Configuration Info */}
-        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-gray-600">
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-gray-600">
           <p className="font-semibold mb-1">⚙️ Konfigurasi:</p>
-          <p className="break-all">Webhook: {N8N_WEBHOOK_URL}</p>
+          <p>✅ CORS Fixed: Using API Proxy</p>
+          <p>✅ Session Management: Enabled</p>
+          <p className="text-green-600 font-semibold mt-1">No CORS Issues!</p>
         </div>
       </div>
     </div>

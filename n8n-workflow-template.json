@@ -1,31 +1,37 @@
 {
-  "name": "Voice Call AI Workflow",
+  "name": "Voice Call AI Workflow with Session Management",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "voice-call",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "allowedOrigins": "*"
+        }
       },
       "name": "Webhook - Streaming Audio",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300],
-      "webhookId": "voice-call"
+      "webhookId": "voice-call",
+      "notes": "Receives audio chunks with sessionId and callId"
     },
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "voice-call/final",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "allowedOrigins": "*"
+        }
       },
       "name": "Webhook - Final Recording",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 600],
-      "webhookId": "voice-call-final"
+      "webhookId": "voice-call-final",
+      "notes": "Receives final recording with complete session data"
     },
     {
       "parameters": {
