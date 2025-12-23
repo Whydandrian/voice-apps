@@ -20,6 +20,7 @@ export default function VoiceCall() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioChunkCountRef = useRef<number>(0);
+  const sessionRef = useRef<CallSession | null>(null);
 
   // Use API proxy to avoid CORS issues
   const API_URL = '/api/voice-call';
@@ -56,6 +57,7 @@ export default function VoiceCall() {
 
       if (data.success && data.session) {
         console.log('✅ Session created:', data.session);
+        sessionRef.current = data.session; // Set ref immediately for synchronous access
         setSession(data.session);
 
         // Save to sessionStorage for recovery
@@ -79,7 +81,8 @@ export default function VoiceCall() {
     duration?: number;
     audioChunks?: number;
   }) => {
-    if (!session) return;
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
 
     try {
       const response = await fetch(SESSION_API_URL, {
@@ -88,7 +91,7 @@ export default function VoiceCall() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sessionId: session.sessionId,
+          sessionId: currentSession.sessionId,
           ...updates,
         }),
       });
@@ -96,6 +99,7 @@ export default function VoiceCall() {
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.session) {
+          sessionRef.current = data.session; // Update ref
           setSession(data.session);
           sessionStorage.setItem('activeCallSession', JSON.stringify(data.session));
         }
@@ -107,7 +111,8 @@ export default function VoiceCall() {
 
   // Fungsi untuk mengirim audio chunk ke n8n (via API proxy - NO CORS!)
   const sendAudioChunk = async (audioBlob: Blob) => {
-    if (!session) {
+    const currentSession = sessionRef.current;
+    if (!currentSession) {
       console.error('❌ No active session');
       return;
     }
@@ -116,8 +121,8 @@ export default function VoiceCall() {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'audio.webm');
       formData.append('timestamp', new Date().toISOString());
-      formData.append('callId', session.callId); // Use session callId
-      formData.append('sessionId', session.sessionId);
+      formData.append('callId', currentSession.callId); // Use session callId
+      formData.append('sessionId', currentSession.sessionId);
       formData.append('chunkNumber', audioChunkCountRef.current.toString());
 
       // Use API proxy instead of direct n8n URL (fixes CORS!)
@@ -209,6 +214,7 @@ export default function VoiceCall() {
       mediaRecorder.onstop = async () => {
         // Kirim recording final ke n8n untuk disimpan
         const fullRecording = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const currentSession = sessionRef.current;
 
         try {
           const formData = new FormData();
@@ -217,9 +223,9 @@ export default function VoiceCall() {
           formData.append('duration', callDuration.toString());
 
           // Include session information
-          if (session) {
-            formData.append('callId', session.callId);
-            formData.append('sessionId', session.sessionId);
+          if (currentSession) {
+            formData.append('callId', currentSession.callId);
+            formData.append('sessionId', currentSession.sessionId);
             formData.append('totalChunks', audioChunkCountRef.current.toString());
           }
 
@@ -232,7 +238,7 @@ export default function VoiceCall() {
             setStatus('Recording disimpan ke Google Drive');
 
             // Update session to ended
-            if (session) {
+            if (currentSession) {
               await updateSession({
                 status: 'ended',
                 endTime: new Date().toISOString(),
@@ -243,7 +249,7 @@ export default function VoiceCall() {
             console.error('Failed to save final recording');
             setStatus('Error: Gagal menyimpan recording');
 
-            if (session) {
+            if (currentSession) {
               await updateSession({ status: 'error' });
             }
           }
@@ -251,7 +257,7 @@ export default function VoiceCall() {
           console.error('Error saving final recording:', error);
           setStatus('Error: Gagal menyimpan recording');
 
-          if (session) {
+          if (currentSession) {
             await updateSession({ status: 'error' });
           }
         }
@@ -287,7 +293,8 @@ export default function VoiceCall() {
   // Menghentikan panggilan
   const stopCall = async () => {
     // Update session before stopping
-    if (session) {
+    const currentSession = sessionRef.current;
+    if (currentSession) {
       await updateSession({
         status: 'ended',
         endTime: new Date().toISOString(),
@@ -332,6 +339,7 @@ export default function VoiceCall() {
     audioContextRef.current = null;
     analyserRef.current = null;
     streamRef.current = null;
+    sessionRef.current = null;
     audioChunkCountRef.current = 0;
 
     // Clean up session storage
