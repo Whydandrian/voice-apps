@@ -22,8 +22,9 @@ export default function VoiceCall() {
   const audioChunkCountRef = useRef<number>(0);
   const sessionRef = useRef<CallSession | null>(null);
 
-  // Use API proxy to avoid CORS issues
-  const API_URL = '/api/voice-call';
+  // Direct n8n webhook URLs
+  const N8N_WEBHOOK_URL = 'https://n8n.itk.ac.id/webhook-test/voice-call';
+  const N8N_WEBHOOK_FINAL_URL = 'https://n8n.itk.ac.id/webhook-test/voice-call/final';
   const SESSION_API_URL = '/api/session';
 
   useEffect(() => {
@@ -125,8 +126,8 @@ export default function VoiceCall() {
       formData.append('sessionId', currentSession.sessionId);
       formData.append('chunkNumber', audioChunkCountRef.current.toString());
 
-      // Use API proxy instead of direct n8n URL (fixes CORS!)
-      const response = await fetch(API_URL, {
+      // Send directly to n8n webhook
+      const response = await fetch(N8N_WEBHOOK_URL, {
         method: 'POST',
         body: formData,
       });
@@ -229,7 +230,7 @@ export default function VoiceCall() {
             formData.append('totalChunks', audioChunkCountRef.current.toString());
           }
 
-          const response = await fetch(API_URL + '/final', {
+          const response = await fetch(N8N_WEBHOOK_FINAL_URL, {
             method: 'POST',
             body: formData,
           });
@@ -467,9 +468,9 @@ export default function VoiceCall() {
         {/* Configuration Info */}
         <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-gray-600">
           <p className="font-semibold mb-1">⚙️ Konfigurasi:</p>
-          <p>✅ CORS Fixed: Using API Proxy</p>
+          <p>✅ Direct n8n Webhook</p>
           <p>✅ Session Management: Enabled</p>
-          <p className="text-green-600 font-semibold mt-1">No CORS Issues!</p>
+          <p className="text-green-600 font-semibold mt-1 break-all">n8n: {N8N_WEBHOOK_URL}</p>
         </div>
       </div>
     </div>
